@@ -90,6 +90,7 @@
         self.asset = asset;
         self.assetTargetSize = targetSize;
         self.isVideo = asset.mediaType == PHAssetMediaTypeVideo;
+        self.isLivePhoto = asset.mediaType == PHAssetMediaTypeImage && (asset.mediaSubtypes & PHAssetMediaSubtypePhotoLive);
     }
     return self;
 }
@@ -238,6 +239,8 @@
     if (self.livePhoto) {
         self.underlyingLivePhoto = self.livePhoto;
         [self livePhotoLoadingComplete];
+    } else if (self.asset) {
+        [self _performLoadUnderlyingLivePhotoAndNotifyWithPHAsset:self.asset];
     } else if (self.livePhotoImageWebURL && self.livePhotoMovieWebURL) {
         [self
          _performLoadUnderlyingLivePhotoAndNotifyWithImageURL:self.livePhotoImageWebURL
@@ -379,6 +382,35 @@
          [self livePhotoLoadingComplete];
          
      }];
+}
+
+- (void)_performLoadUnderlyingLivePhotoAndNotifyWithPHAsset:(PHAsset *)asset {
+    
+    if (!asset || !(asset.mediaType == PHAssetMediaTypeImage && (asset.mediaSubtypes & PHAssetMediaSubtypePhotoLive))) {
+        MWLog(@"Error: PHAsset must be valid and of subtype PHAssetMediaSubtypePhotoLive.");
+        return;
+    }
+    
+    PHLivePhotoRequestOptions *options = [PHLivePhotoRequestOptions new];
+    options.progressHandler = ^(double progress, NSError *error, BOOL *stop, NSDictionary *info) {
+        [[NSNotificationCenter defaultCenter]
+         postNotificationName:MWPHOTO_PROGRESS_NOTIFICATION
+         object:@{
+                  @"progress": @(progress),
+                  @"photo": self
+                  }];
+    };
+
+    [[PHImageManager defaultManager] requestLivePhotoForAsset:asset
+                                                   targetSize:self.assetTargetSize
+                                                  contentMode:PHImageContentModeAspectFit
+                                                      options:nil
+                                                resultHandler:^(PHLivePhoto * _Nullable livePhoto, NSDictionary * _Nullable info) {
+                                                    if (![info objectForKey:PHImageResultIsDegradedKey]) {
+                                                        self.underlyingLivePhoto = livePhoto;
+                                                        [self livePhotoLoadingComplete];
+                                                    }
+                                                }];
 }
 
 // Release if we can get it again from path or url
